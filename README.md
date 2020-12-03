@@ -1,5 +1,5 @@
 # MSBD5001-Independent-Project
-Top 20 solutions in HKUST speed prediction competition
+Top x solutions in HKUST speed prediction competition
 
 Team name: JUST 1 MAN
 
