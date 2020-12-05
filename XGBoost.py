@@ -1,152 +1,76 @@
-import xgboost as xgb
 import pandas as pd
+import xgboost as xgb
+from xgboost import XGBRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
 
-from xgboost import plot_importance
-from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
-from sklearn import metrics
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
-pd.options.mode.chained_assignment = None
+df = pd.read_csv("train.csv", dayfirst=True, parse_dates=['date'])
+dft = pd.read_csv("test.csv", dayfirst=True, parse_dates=['date'])
 
-df = pd.read_csv("train.csv")
-df["time"] = df["date"].apply(lambda x : x[-5:-3])
-df["day"] = df["date"].apply(lambda x : x.split('/')[0])
-df["month"] = df["date"].apply(lambda x : x.split('/')[1])
-df["year"] = df["date"].apply(lambda x : x.split('/')[2][0:4])
+#Add year, month, day, hour
+df['year'] = pd.Series([date.year for date in df['date']])
+df['month'] = pd.Series([date.month for date in df['date']])
+df['day'] = pd.Series([date.day for date in df['date']])
+df['hour'] = pd.Series([date.hour for date in df['date']])
+df['ymd'] = df['date'].dt.date
 
-#Add feature: Holiday
-df['holiday'] = 0
-df.loc[(df.month == '1') & (df.year == '2017') & (df.day.isin(['1', '2', '27', '28', '29', '30', '31'])), 'holiday'] = 1
-df.loc[(df.month == '2') & (df.year == '2017') & (df.day.isin(['1', '2'])), 'holiday'] = 1
-df.loc[(df.month == '4') & (df.year == '2017') & (df.day.isin(['2', '3', '4', '29', '30'])), 'holiday'] = 1
-df.loc[(df.month == '5') & (df.year == '2017') & (df.day.isin(['1', '28', '29', '30'])), 'holiday'] = 1
-df.loc[(df.month == '10') & (df.year == '2017') & (df.day.isin(['1', '2', '3', '4', '5', '6', '7', '8'])), 'holiday'] = 1
-df.loc[(df.month == '12') & (df.year == '2017') & (df.day.isin(['31'])), 'holiday'] = 1
-df.loc[(df.month == '1') & (df.year == '2018') & (df.day.isin(['1'])), 'holiday'] = 1
-df.loc[(df.month == '2') & (df.year == '2018') & (df.day.isin(['15', '16', '17', '18', '19', '20', '21'])), 'holiday'] = 1
-df.loc[(df.month == '4') & (df.year == '2018') & (df.day.isin(['5', '6', '7'])), 'holiday'] = 1
-df.loc[(df.month == '6') & (df.year == '2018') & (df.day.isin(['16', '17', '18'])), 'holiday'] = 1
-df.loc[(df.month == '9') & (df.year == '2018') & (df.day.isin(['24'])), 'holiday'] = 1
-df.loc[(df.month == '10') & (df.year == '2018') & (df.day.isin(['1', '2', '3', '4', '5', '6', '7'])), 'holiday'] = 1
+dft['year'] = pd.Series([date.year for date in dft['date']])
+dft['month'] = pd.Series([date.month for date in dft['date']])
+dft['day'] = pd.Series([date.day for date in dft['date']])
+dft['hour'] = pd.Series([date.hour for date in dft['date']])
+dft['ymd'] = dft['date'].dt.date
 
-#Add feature: Season
-df['spring'] = 0
-df['summer'] = 0
-df['autumn'] = 0
-df['winter'] = 0
-df['winter'].iloc[0:783] = 1
-df['spring'].iloc[783:2967] = 1
-df['summer'].iloc[2967:5222] = 1
-df['autumn'].iloc[5222:7430] = 1
-df['winter'].iloc[7430:9246] = 1
-df['spring'].iloc[9246:10566] = 1
-df['summer'].iloc[10566:11975] = 1
-df['autumn'].iloc[11975:13260] = 1
-df['winter'].iloc[13260:14006] = 1
-
-#Add feature: Weekday
-df["month"] = df["month"].apply(lambda x: '{0:0>2}'.format(x))
-df["day"] = df["day"].apply(lambda x: '{0:0>2}'.format(x))
-df["date"] = df[['year', 'month', 'day']].agg('-'.join, axis=1)
-df["date"] = pd.to_datetime(df["date"])
-df["day_of_week"] = df["date"].dt.day_name()
-
+#Add weekday
 week_day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+df["day_of_week"] = df["date"].dt.day_name()
+dft["day_of_week"] = dft["date"].dt.day_name()
 for day in week_day:
     df[day] = 0
-    df.loc[df["day_of_week"] == day, day] = 1
-
-df["time"] = df["time"].astype("float64")
-df["day"] = df["day"].astype("float64")
-df["month"] = df["month"].astype("float64")
-df["year"] = df["year"].astype("float64")
-
-ydata = df["speed"]
-df.drop(["date", "id", "day_of_week", "speed"], axis = 1, inplace=True)
-
-xdata = df
-
-#Load test data
-dft = pd.read_csv("test.csv")
-dft["time"] = dft["date"].apply(lambda x : x[-5:-3])
-dft["day"] = dft["date"].apply(lambda x : x.split('/')[0])
-dft["month"] = dft["date"].apply(lambda x : x.split('/')[1])
-dft["year"] = dft["date"].apply(lambda x : x.split('/')[2][0:4])
-dayt = dft["day"]
-
-#Same feature as training data
-dft['holiday'] = 0
-dft.loc[(dft.month == '1') & (dft.year == '2018') & (dft.day.isin(['1'])), 'holiday'] = 1
-dft.loc[(dft.month == '2') & (dft.year == '2018') & (dft.day.isin(['15', '16', '17', '18', '19', '20', '21'])), 'holiday'] = 1
-dft.loc[(dft.month == '4') & (dft.year == '2018') & (dft.day.isin(['5', '6', '7'])), 'holiday'] = 1
-dft.loc[(dft.month == '6') & (dft.year == '2018') & (dft.day.isin(['16', '17', '18'])), 'holiday'] = 1
-dft.loc[(dft.month == '9') & (dft.year == '2018') & (dft.day.isin(['24'])), 'holiday'] = 1
-dft.loc[(dft.month == '10') & (dft.year == '2018') & (dft.day.isin(['1', '2', '3', '4', '5', '6', '7'])), 'holiday']
-
-dft['spring'] = 0
-dft['summer'] = 0
-dft['autumn'] = 0
-dft['winter'] = 0
-dft['winter'].iloc[0:320] = 1
-dft['spring'].iloc[320:1160] = 1
-dft['summer'].iloc[1160:2007] = 1
-dft['autumn'].iloc[2007:2930] = 1
-dft['winter'].iloc[2930:3504] = 1
-
-dft["month"] = dft["month"].apply(lambda x: '{0:0>2}'.format(x))
-dft["day"] = dft["day"].apply(lambda x: '{0:0>2}'.format(x))
-dft["date"] = dft[['year', 'month', 'day']].agg('-'.join, axis=1)
-dft["date"] = pd.to_datetime(dft["date"])
-dft["day_of_week"] = dft["date"].dt.day_name()
-
-for day in week_day:
     dft[day] = 0
+    df.loc[df["day_of_week"] == day, day] = 1
     dft.loc[dft["day_of_week"] == day, day] = 1
+df.drop(["day_of_week", "date"], axis=1, inplace=True)
+dft.drop(["day_of_week", "date"], axis=1, inplace=True)
 
-dft.drop(["date", "id", "day_of_week"], axis = 1, inplace=True)
-dft["time"] = dft["time"].astype("float64")
-dft["day"] = dft["day"].astype("float64")
-dft["month"] = dft["month"].astype("float64")
-dft["year"] = dft["year"].astype("float64")
-xtest = dft
+#Add weather information
+df_w = pd.read_csv('hongkong.csv', dayfirst=True, parse_dates=['date_time'])
+df_w.set_index(['date_time'], inplace=True)
+df.set_index('ymd', inplace=True)
+df = df.join(df_w)
+dft.set_index('ymd', inplace=True)
+dft = dft.join(df_w)
 
-#Split data for training and validation
-x_train, x_test, y_train, y_test = train_test_split(xdata, ydata, test_size=0.2, random_state=1)
+#Add holiday
+holidays = pd.to_datetime([ '2017-01-02', '2017-1-28', '2017-1-30', '2017-1-31',
+                            '2017-4-4', '2017-4-5', '2017-4-15', '2017-4-17',
+                            '2017-5-1', '2017-5-3', '2017-5-30', '2017-7-1',
+                            '2017-10-2', '2017-10-5', '2017-10-28', '2017-12-25', '2017-12-26',
+                            '2018-01-01', '2018-2-16', '2018-2-17', '2018-2-19',
+                            '2018-3-30', '2018-3-31', '2018-4-2', '2018-4-5',
+                            '2018-5-1', '2018-5-22', '2018-6-18', '2018-7-2',
+                            '2018-9-25', '2018-10-1', '2018-10-17', '2018-12-25', '2018-12-26'])
 
-#Hyperparameter list
-params = {
-    'booster': 'gbtree',
-    'objective': 'reg:squarederror',
-    'gamma': 0,
-    'max_depth': 40,
-    'lambda': 3,
-    'subsample': 0.7,
-    'colsample_bytree': 1,
-    'min_child_weight': 2, 
-    'eta': 0.01,
-    'seed': 1000,
-    'nthread': 4,
-    'reg_alpha': 2,
-}
+holidays = pd.to_datetime(holidays)
+holidays = pd.Series(1, index=holidays, name='holiday')
+df = df.join(holidays)
+df['holiday'].fillna(0, inplace=True)
+dft = dft.join(holidays)
+dft['holiday'].fillna(0,inplace=True)
 
-dtrain = xgb.DMatrix(x_train, y_train)
-num_rounds = 850
-plst = list(params.items())
-model = xgb.train(plst, dtrain, num_rounds)
-predict_y_train = model.predict(xgb.DMatrix(x_train))
-predict_y_test = model.predict(xgb.DMatrix(x_test))
-trainMSE = metrics.mean_squared_error(y_train, predict_y_train)
-testMSE = metrics.mean_squared_error(y_test, predict_y_test)
-print("trainMSE:", trainMSE)
-print("testMSE:", testMSE)
+#Model training
+feature_list = ['year', 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday','month', 'day',
+                'hour', 'holiday', 'tempC', 'visibility', 'winddirDegree', 'windspeedKmph','humidity','cloudcover', 'WindChillC']
+x = df.loc[: , feature_list]
+test = dft.loc[:, feature_list]
+y = df.loc[:, 'speed']
 
-dtrain = xgb.DMatrix(xdata, ydata)
-plst = list(params.items())
-model = xgb.train(plst, dtrain, num_rounds)
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.01, random_state=1)
 
-res = model.predict(xgb.DMatrix(xtest))
-sub = pd.read_csv("sampleSubmission.csv")
-del sub['speed']
-sub['speed'] = res
-sub.to_csv("result5.csv", index=False)
+model = xgb.XGBRegressor(max_depth=7, learning_rate=0.09, n_estimators=450, objective='reg:squarederror')
+model.fit(x_train, y_train)
+pred = model.predict(x_test)
+print('MSE: ', mean_squared_error(y_test, pred))
 
-
+dft['speed'] = model.predict(test)
+res = dft[['id', 'speed']].set_index('id')
+res.to_csv('result.csv')
