@@ -1,5 +1,5 @@
 # MSBD5001-Independent-Project
-Top x solutions in HKUST speed prediction competition
+Top 20% solutions in HKUST speed prediction competition
 
 Team name: BeOK
 
